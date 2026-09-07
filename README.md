@@ -40,6 +40,34 @@ The gateway runs inside an AMD SEV-SNP confidential machine and publishes the
 head of its own call chain to Sigstore Rekor. That log runs outside Sumplus, so
 an entry once written cannot be quietly revised by the party it describes.
 
+## Architecture
+
+```mermaid
+flowchart LR
+  A([Agent wants to make a call])
+  P["policy.ts<br/>per-call ceiling · session cap<br/>host allowlist · action list"]
+  U["upstream.ts<br/>the call, metered"]
+  L["receipts.ts<br/>hash-chained ledger"]
+  V["/verify<br/>recompute from the receipts alone"]
+  ARS[["arsenal.sumplus.xyz<br/>execution layer"]]
+  RTR[["router.sumplus.xyz<br/>gateway in AMD SEV-SNP"]]
+  REK[["Sigstore Rekor<br/>a log Sumplus does not run"]]
+
+  A --> P
+  P -- allowed --> U
+  P -- "refused, with a sentence" --> L
+  U --> ARS
+  U --> RTR
+  U -- "cost, hashes, decision" --> L
+  L --> V
+  RTR -- "publishes its chain head" --> REK
+```
+
+Two things sit either side of the money. On the left the policy decides, and it
+decides before anything leaves. On the right the ledger records, including the
+calls that never happened, and the record is checkable by someone who was not
+there and who does not have to take Sumplus at its word.
+
 ## The receipt chain
 
 Each receipt commits to its fields in a fixed order and to the hash of the
