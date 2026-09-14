@@ -12,6 +12,7 @@ export const RATE_CARD: Record<string, number> = {
   "skill.search": 4_000,
   "quote.read": 12_000,
   "attestation.read": 1_000,
+  "anchor.read": 1_000,
   // Priced above the per-call ceiling on purpose: the demo needs a call the
   // policy has to refuse, or the controls are never seen doing anything.
   "portfolio.rebalance": 90_000,

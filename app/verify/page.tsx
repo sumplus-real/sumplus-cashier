@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { Receipt, VerifyProblem } from "@/lib/receipts";
+import { settlementState, type Receipt, type VerifyProblem } from "@/lib/receipts";
 import { short } from "@/lib/money";
 
 type Verification = {
@@ -15,38 +15,50 @@ type Verification = {
 };
 
 export default function VerifyPage() {
-  const [v, setV] = useState<Verification | null>(null);
+  const [clean, setClean] = useState<Verification | null>(null);
+  /** The edited copy, when the demonstration control has been used. */
+  const [edited, setEdited] = useState<Verification | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
     const res = await fetch("/api/verify", { cache: "no-store" });
     const data = (await res.json()) as Verification;
-    setV(data.empty ? null : data);
+    setClean(data.empty ? null : data);
   }, []);
 
   useEffect(() => {
     load().catch(() => undefined);
   }, [load]);
 
-  async function edit(seq: number) {
+  // What the page is showing: the session's own record, or the edited copy.
+  const v = edited ?? clean;
+
+  async function edit(seq: number, field: "costMicroUsd" | "chainTxHash") {
     setBusy(true);
     setNote("");
     try {
       const res = await fetch("/api/tamper", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ seq, field: "costMicroUsd" }),
+        body: JSON.stringify({ seq, field }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "edit failed");
-      setNote(`Receipt ${seq} was edited: one dollar was added to its cost. Nothing else changed.`);
-      await load();
+      setEdited({ ...data.verification, receipts: data.receipts });
+      setNote(
+        `Showing a copy in which ${data.note}. The session's own receipts are unchanged, and this copy is discarded when you restore it.`,
+      );
     } catch (e) {
       setNote(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
+  }
+
+  function restore() {
+    setEdited(null);
+    setNote("");
   }
 
   return (
@@ -80,6 +92,9 @@ export default function VerifyPage() {
               </span>{" "}
               <span className="muted">
                 {v.length} receipts, head <span className="mono">{short(v.head)}</span>
+              </span>{" "}
+              <span className={`tag ${edited ? "no" : "ok"}`}>
+                {edited ? "edited copy" : "the session as it ran"}
               </span>
             </p>
             {v.ok ? (
@@ -101,6 +116,18 @@ export default function VerifyPage() {
           {note && <div className="callout bad">{note}</div>}
 
           <h2>Receipts</h2>
+          <p className="muted" style={{ margin: "-6px 0 12px" }}>
+            The buttons below are a demonstration control. They edit a copy of this session&apos;s
+            record so you can watch the check fail. Nothing stored is modified, and{" "}
+            <strong>Restore the real record</strong> brings the page back to the session as it ran.
+          </p>
+          {edited && (
+            <p style={{ margin: "0 0 12px" }}>
+              <button className="btn" onClick={restore}>
+                Restore the real record
+              </button>
+            </p>
+          )}
           <div className="scroll-x">
             <table>
               <thead>
@@ -108,6 +135,7 @@ export default function VerifyPage() {
                   <th>#</th>
                   <th>Action</th>
                   <th>Decision</th>
+                  <th>On chain</th>
                   <th>Hash</th>
                   <th />
                 </tr>
@@ -122,11 +150,35 @@ export default function VerifyPage() {
                         {r.decision}
                       </span>
                     </td>
-                    <td className="mono">{short(r.hash)}</td>
                     <td>
-                      <button className="btn danger" disabled={busy} onClick={() => edit(r.seq)}>
-                        Edit this receipt
+                      {(() => {
+                        const s = settlementState(r);
+                        return s.state === "none" ? (
+                          <span className="muted">off chain</span>
+                        ) : (
+                          <span className={`tag ${s.tone}`}>{s.label}</span>
+                        );
+                      })()}
+                    </td>
+                    <td className="mono">{short(r.hash)}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <button
+                        className="btn danger"
+                        disabled={busy}
+                        onClick={() => edit(r.seq, "costMicroUsd")}
+                      >
+                        Edit the cost
                       </button>
+                      {r.chainTxHash && (
+                        <button
+                          className="btn danger"
+                          style={{ marginLeft: 8 }}
+                          disabled={busy}
+                          onClick={() => edit(r.seq, "chainTxHash")}
+                        >
+                          Swap the transaction hash
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

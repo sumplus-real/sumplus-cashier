@@ -284,6 +284,13 @@ p {
   border-color: #4a2222;
 }
 
+/* Still settling. Deliberately not the refusal colour and not the failure
+   colour: an execution that has broadcast but is not confirmed yet is neither. */
+.tag.wait {
+  color: #7aa2f7;
+  border-color: #24365e;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

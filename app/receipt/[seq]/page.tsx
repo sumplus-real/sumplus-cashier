@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
-import type { Receipt } from "@/lib/receipts";
+import { settlementState, type Receipt } from "@/lib/receipts";
 import { usd } from "@/lib/money";
 
-type Run = { receipts: Receipt[]; empty?: boolean };
+type Settlement = { transactionLink?: string | null; chainId?: string; executionId?: string };
+type Run = { receipts: Receipt[]; settlement?: Settlement | null; empty?: boolean };
 
 export default function ReceiptPage({ params }: { params: Promise<{ seq: string }> }) {
   const { seq } = use(params);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
+  const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [missing, setMissing] = useState(false);
 
   useEffect(() => {
@@ -18,8 +20,10 @@ export default function ReceiptPage({ params }: { params: Promise<{ seq: string 
       .then((d: Run) => {
         if (d.empty) return setMissing(true);
         const found = d.receipts.find((r) => String(r.seq) === seq);
-        if (found) setReceipt(found);
-        else setMissing(true);
+        if (found) {
+          setReceipt(found);
+          setSettlement(d.settlement ?? null);
+        } else setMissing(true);
       })
       .catch(() => setMissing(true));
   }, [seq]);
@@ -76,6 +80,45 @@ export default function ReceiptPage({ params }: { params: Promise<{ seq: string 
           </tbody>
         </table>
       </div>
+
+      {(() => {
+        const s = settlementState(receipt);
+        if (s.state === "none") return null;
+        const link =
+          settlement?.transactionLink && receipt.chainTxHash ? settlement.transactionLink : null;
+        return (
+          <>
+            <h2>On chain</h2>
+            <div className="panel">
+              <p style={{ margin: "0 0 8px" }}>
+                <span className={`tag ${s.tone}`}>{s.label}</span>
+              </p>
+              <p className="muted" style={{ margin: "0 0 14px" }}>
+                {s.detail}
+              </p>
+              <p style={{ margin: "0 0 4px" }} className="muted">
+                Transaction
+              </p>
+              <p className="mono" style={{ margin: "0 0 14px", wordBreak: "break-all" }}>
+                {receipt.chainTxHash ?? "no hash was reported"}
+              </p>
+              {link && (
+                <p style={{ margin: "0 0 14px" }}>
+                  <a href={link} target="_blank" rel="noreferrer">
+                    Open it on the explorer
+                  </a>
+                </p>
+              )}
+              <p className="muted" style={{ margin: 0 }}>
+                The hash above is inside this receipt&apos;s own hash, so pointing the receipt at a
+                different transaction breaks it and the receipt after it. What makes the status
+                evidence rather than a claim is that KeeperHub re-fetched the receipt from the chain
+                before settling the execution.
+              </p>
+            </div>
+          </>
+        );
+      })()}
 
       <h2>Hashes</h2>
       <div className="panel">

@@ -20,7 +20,7 @@ export type Policy = {
 export const DEFAULT_POLICY: Policy = {
   perCallMicroUsd: 20_000,
   sessionMicroUsd: 50_000,
-  allowedHosts: ["arsenal.sumplus.xyz", "router.sumplus.xyz"],
+  allowedHosts: ["arsenal.sumplus.xyz", "router.sumplus.xyz", "app.keeperhub.com"],
   // portfolio.rebalance is deliberately permitted here so that the call is
   // stopped by the per-call ceiling instead. A ceiling that never fires in the
   // demo is a ceiling nobody has seen work.
@@ -29,7 +29,11 @@ export const DEFAULT_POLICY: Policy = {
     "skill.search",
     "quote.read",
     "attestation.read",
+    "anchor.read",
     "portfolio.rebalance",
+    // The settlement runs under the same gate as everything else: if this
+    // action or app.keeperhub.com were not listed, the money would not move.
+    "settlement.transfer",
   ],
 };
 

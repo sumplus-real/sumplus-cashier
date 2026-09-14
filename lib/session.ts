@@ -4,7 +4,8 @@
  * demo is that the chain is checkable from the receipts alone.
  */
 import { DEFAULT_POLICY, decide, type Policy } from "./policy";
-import { appendReceipt, hashPayload, verifyChain, type Receipt } from "./receipts";
+import { keeperHubConfig, settle, type Settlement } from "./keeperhub";
+import { appendReceipt, hashPayload, tamperedCopy, verifyChain, type Receipt } from "./receipts";
 import {
   RATE_CARD,
   arsenalCategories,
@@ -32,6 +33,8 @@ export type SessionRun = {
   spentMicroUsd: number;
   head: string;
   anchor: RekorAnchor | null;
+  /** The onchain settlement, when KeeperHub is configured for this deployment. */
+  settlement: Settlement | null;
 };
 
 let current: SessionRun | null = null;
@@ -45,26 +48,35 @@ export function requireSession(): SessionRun {
   return current;
 }
 
-/** Replaces one receipt's field, so the verifier can be shown failing. */
-export function tamper(seq: number, field: "costMicroUsd" | "target"): Receipt {
+/**
+ * A copy of this session's chain with one receipt edited, for showing the
+ * verifier failing. The session's own receipts are never modified: the demo
+ * control has to leave the record it is demonstrating intact, or the next
+ * visitor reads a broken chain and concludes our receipts can be edited.
+ */
+export function tamperedView(
+  seq: number,
+  field: "costMicroUsd" | "target" | "chainTxHash",
+): { receipts: Receipt[]; edited: Receipt; note: string } {
   const run = requireSession();
-  const target = run.receipts.find((r) => r.seq === seq);
-  if (!target) throw new Error(`No receipt numbered ${seq}.`);
-  if (field === "costMicroUsd") target.costMicroUsd += 1_000_000;
-  else target.target = `${target.target}.evil`;
-  return target;
+  return tamperedCopy(run.receipts, seq, field);
 }
 
 export async function runSession(policy: Policy = DEFAULT_POLICY): Promise<SessionRun> {
   const receipts: Receipt[] = [];
   const steps: Step[] = [];
+  const sessionId = `run_${Date.now().toString(36)}`;
   let spent = 0;
 
   async function step(
     action: string,
     host: string,
     label: string,
-    work: () => Promise<{ payload: unknown; evidence: string }>,
+    work: () => Promise<{
+      payload: unknown;
+      evidence: string;
+      chain?: { txHash?: string; receiptStatus?: string; verified?: boolean };
+    }>,
   ) {
     const costMicroUsd = RATE_CARD[action] ?? 0;
     const verdict = decide(policy, spent, { action, host, costMicroUsd });
@@ -86,10 +98,12 @@ export async function runSession(policy: Policy = DEFAULT_POLICY): Promise<Sessi
 
     let payload: unknown;
     let evidence: string;
+    let chain: { txHash?: string; receiptStatus?: string; verified?: boolean } | undefined;
     try {
       const out = await work();
       payload = out.payload;
       evidence = out.evidence;
+      chain = out.chain;
     } catch (err) {
       payload = { error: err instanceof Error ? err.message : String(err) };
       evidence = `upstream did not answer: ${err instanceof Error ? err.message : String(err)}`;
@@ -102,6 +116,9 @@ export async function runSession(policy: Policy = DEFAULT_POLICY): Promise<Sessi
       costMicroUsd,
       decision: "allowed",
       payloadHash: hashPayload(payload),
+      chainTxHash: chain?.txHash,
+      chainReceiptStatus: chain?.receiptStatus,
+      chainVerified: chain?.verified,
     });
     steps.push({ action, host, label, evidence, receipt });
   }
@@ -141,15 +158,63 @@ export async function runSession(policy: Policy = DEFAULT_POLICY): Promise<Sessi
     throw new Error("unreachable: policy refuses this before it runs");
   });
 
-  let anchor: RekorAnchor | null = null;
-  try {
-    anchor = await routerRekor();
-  } catch {
-    anchor = null;
+  // The settlement. Everything above decides; this is where the money actually
+  // moves, and it moves through KeeperHub. The policy gates it like any other
+  // call: app.keeperhub.com and settlement.transfer both have to be allowed.
+  let settlement: Settlement | null = null;
+  const kh = keeperHubConfig();
+  if (kh) {
+    await step(
+      "settlement.transfer",
+      "app.keeperhub.com",
+      "Settle the allowed spend on chain through KeeperHub",
+      async () => {
+        // The task id names the work rather than the attempt, so a retry of the
+        // same session derives the same idempotency key and replays instead of
+        // broadcasting a second transaction.
+        const result = await settle(kh, `cashier-session-${sessionId}`);
+        settlement = result;
+        const verified = result.receipt?.verified === true;
+        return {
+          payload: {
+            executionId: result.executionId,
+            status: result.status,
+            chainId: result.chainId,
+            receipt: result.receipt,
+          },
+          evidence: verified
+            ? `chain ${result.chainId}, transaction ${result.transactionHash} confirmed in block ${result.receipt?.blockNumber}`
+            : `execution ${result.executionId} finished as ${result.status} with no confirmed receipt`,
+          chain: {
+            txHash: result.transactionHash ?? undefined,
+            receiptStatus: result.receipt?.receiptStatus,
+            verified,
+          },
+        };
+      },
+    );
   }
 
+  // The public anchor, read as a step so it takes its own place in the chain.
+  // It also means the settlement is not the last receipt, so editing the
+  // settlement has a successor to break: a tampering demonstration on the final
+  // receipt can only ever show half the property.
+  let anchor: RekorAnchor | null = null;
+  await step(
+    "anchor.read",
+    "router.sumplus.xyz",
+    "Read the gateway's public transparency-log anchor",
+    async () => {
+      anchor = await routerRekor();
+      return {
+        payload: anchor,
+        evidence: `Rekor entry ${anchor.rekor.log_index}, a log Sumplus does not operate`,
+      };
+    },
+  );
+
   current = {
-    id: `run_${Date.now().toString(36)}`,
+    id: sessionId,
     startedAt: new Date().toISOString(),
     policy,
     steps,
@@ -157,6 +222,7 @@ export async function runSession(policy: Policy = DEFAULT_POLICY): Promise<Sessi
     spentMicroUsd: spent,
     head: verifyChain(receipts).head,
     anchor,
+    settlement,
   };
   return current;
 }

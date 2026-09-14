@@ -67,6 +67,44 @@ async function main() {
     throw new Error(`Receipt ${victim.seq + 1} should have been implicated and was not.`);
   }
 
+  // The settlement receipt carries the onchain transaction hash, which is the
+  // part a reader would most want to forge: point the receipt at a different
+  // transaction and the spend appears to have settled when it did not. The
+  // hash is inside the commitment, so the same two failures have to appear.
+  const settled = receipts.find((r) => r.chainTxHash);
+  if (settled) {
+    const fresh = base ? await fromDeployment(base) : (await runSession()).receipts;
+    const victim2 = fresh.find((r) => r.chainTxHash);
+    if (!victim2) throw new Error("The second run produced no settlement receipt to edit.");
+
+    victim2.chainTxHash = `0x${"f".repeat(64)}`;
+    const forgedSettlement = verifyChain(fresh);
+    console.log(
+      `3. Chain with receipt ${victim2.seq}'s transaction hash swapped -> ${forgedSettlement.ok ? "ACCEPTED" : "rejected"}`,
+    );
+    for (const p of forgedSettlement.problems) console.log(`   receipt ${p.seq}: ${p.detail}`);
+
+    if (forgedSettlement.ok) {
+      throw new Error(
+        "The verifier accepted a swapped transaction hash. The settlement is not inside the commitment.",
+      );
+    }
+    const kinds2 = new Set(forgedSettlement.problems.map((p) => p.kind));
+    const flagged2 = new Set(forgedSettlement.problems.map((p) => p.seq));
+    if (!kinds2.has("hash-mismatch")) {
+      throw new Error("Swapping the transaction hash did not break the receipt's own hash.");
+    }
+    if (victim2.seq + 1 < fresh.length) {
+      if (!kinds2.has("broken-link") || !flagged2.has(victim2.seq + 1)) {
+        throw new Error(
+          `Receipt ${victim2.seq + 1} still linked cleanly after the transaction hash was swapped.`,
+        );
+      }
+    }
+  } else {
+    console.log("3. No settlement receipt in this run, so the onchain half was not exercised.");
+  }
+
   console.log("\nAccepted the genuine record and refused the edited one.");
 }
 

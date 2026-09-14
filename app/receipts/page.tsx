@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import type { Receipt } from "@/lib/receipts";
+import { settlementState, type Receipt } from "@/lib/receipts";
 import { short, usd } from "@/lib/money";
 
 type Run = { receipts: Receipt[]; head: string; spentMicroUsd: number; empty?: boolean };
@@ -57,6 +57,16 @@ export default function ReceiptsPage() {
                   <p className="mono muted" style={{ margin: 0 }}>
                     {short(r.prevHash)} → {short(r.hash)}
                   </p>
+                  {(() => {
+                    const s = settlementState(r);
+                    if (s.state === "none") return null;
+                    return (
+                      <p className="mono muted" style={{ margin: "6px 0 0" }}>
+                        <span className={`tag ${s.tone}`}>{s.label}</span>{" "}
+                        {r.chainTxHash ? short(r.chainTxHash) : ""}
+                      </p>
+                    );
+                  })()}
                 </div>
                 <div className={`tag ${r.decision === "allowed" ? "ok" : "no"}`}>
                   {r.decision === "allowed" ? usd(r.costMicroUsd) : "refused"}

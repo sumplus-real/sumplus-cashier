@@ -18,6 +18,15 @@ export type Receipt = {
   reason?: string;
   /** Hash of the request and response metadata. Bodies are never stored. */
   payloadHash: string;
+  /**
+   * Present when the spend was settled on chain through KeeperHub. The hash is
+   * what the write path reported; `chainVerified` and `chainReceiptStatus` come
+   * from the receipt KeeperHub re-fetched from the chain, which is the part
+   * that is evidence rather than self-report.
+   */
+  chainTxHash?: string;
+  chainReceiptStatus?: string;
+  chainVerified?: boolean;
   prevHash: string;
   hash: string;
 };
@@ -39,6 +48,11 @@ export function receiptPreimage(r: Omit<Receipt, "hash">): string {
     r.decision,
     r.reason ?? "",
     r.payloadHash,
+    // The settlement fields are inside the commitment, so editing a transaction
+    // hash breaks the receipt's own hash and the link held by the next one.
+    r.chainTxHash ?? "",
+    r.chainReceiptStatus ?? "",
+    r.chainVerified === true ? "verified" : "",
     r.prevHash,
   ].join("\n");
 }
@@ -65,11 +79,84 @@ export function appendReceipt(
     decision: fields.decision,
     reason: fields.reason,
     payloadHash: fields.payloadHash,
+    chainTxHash: fields.chainTxHash,
+    chainReceiptStatus: fields.chainReceiptStatus,
+    chainVerified: fields.chainVerified,
     prevHash: prev ? prev.hash : GENESIS,
   };
   const receipt: Receipt = { ...body, hash: hashReceipt(body) };
   chain.push(receipt);
   return receipt;
+}
+
+/**
+ * How a receipt's onchain settlement should read. "Still settling" and "failed"
+ * are deliberately separate: an execution that has broadcast but whose receipt
+ * could not be read yet may still land, and showing it as a failure invites
+ * exactly the double-send the idempotency key exists to prevent.
+ */
+export type SettlementState = {
+  state: "none" | "settled" | "settling" | "failed";
+  label: string;
+  tone: "ok" | "wait" | "bad" | "none";
+  detail: string;
+};
+
+export function settlementState(r: Pick<Receipt, "chainTxHash" | "chainReceiptStatus" | "chainVerified">): SettlementState {
+  if (!r.chainTxHash && !r.chainReceiptStatus) {
+    return { state: "none", label: "", tone: "none", detail: "" };
+  }
+  if (r.chainVerified === true && r.chainReceiptStatus === "success") {
+    return {
+      state: "settled",
+      label: "settled on chain",
+      tone: "ok",
+      detail: "The receipt for this transaction was re-fetched from the chain and confirmed.",
+    };
+  }
+  if (r.chainReceiptStatus === "reverted" || r.chainReceiptStatus === "safe_inner_failure") {
+    return {
+      state: "failed",
+      label: "reverted on chain",
+      tone: "bad",
+      detail:
+        r.chainReceiptStatus === "reverted"
+          ? "The transaction was included and the chain rejected it."
+          : "The outer transaction succeeded and an inner call failed.",
+    };
+  }
+  return {
+    state: "settling",
+    label: "still settling",
+    tone: "wait",
+    detail:
+      "The transaction was broadcast and its receipt has not been read conclusively yet. This is not a failure, and it must not be re-sent: a second send can put a second transaction on the chain.",
+  };
+}
+
+/** A copy of the chain with one field edited. The stored receipts are untouched. */
+export function tamperedCopy(
+  chain: Receipt[],
+  seq: number,
+  field: "costMicroUsd" | "target" | "chainTxHash",
+): { receipts: Receipt[]; edited: Receipt; note: string } {
+  const receipts = chain.map((r) => ({ ...r }));
+  const edited = receipts.find((r) => r.seq === seq);
+  if (!edited) throw new Error(`No receipt numbered ${seq}.`);
+
+  let note: string;
+  if (field === "costMicroUsd") {
+    edited.costMicroUsd += 1_000_000;
+    note = `one dollar was added to receipt ${seq}'s cost`;
+  } else if (field === "chainTxHash") {
+    if (!edited.chainTxHash) throw new Error(`Receipt ${seq} carries no transaction hash.`);
+    edited.chainTxHash = `0x${"f".repeat(64)}`;
+    note = `receipt ${seq}'s transaction hash was swapped for a different one`;
+  } else {
+    edited.target = `${edited.target}.evil`;
+    note = `receipt ${seq}'s target was changed`;
+  }
+  return { receipts, edited, note };
 }
 
 export type VerifyProblem = {
