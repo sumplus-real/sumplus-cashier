@@ -150,7 +150,12 @@ export default function Home() {
                     </p>
                   </div>
                   <div className={`tag ${no ? "no" : "ok"}`}>
-                    {no ? "refused" : usd(s.receipt.costMicroUsd)}
+                    {no
+                      ? "refused"
+                      : s.receipt.chainTxHash && s.receipt.costMicroUsd === 0
+                        ? // Metered at nothing by the gateway, paid for in gas.
+                          "gas only"
+                        : usd(s.receipt.costMicroUsd)}
                   </div>
                 </div>
               );

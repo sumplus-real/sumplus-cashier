@@ -27,6 +27,18 @@ export function keeperHubBase(): string {
  */
 export const DEFAULT_CHAIN_ID = "97";
 
+/** What gas is paid in, per chain. Anything unlisted is named honestly. */
+export function nativeSymbol(chainId: string): string {
+  const known: Record<string, string> = {
+    "97": "tBNB",
+    "56": "BNB",
+    "11155111": "SepoliaETH",
+    "84532": "BaseSepoliaETH",
+    "80002": "POL",
+  };
+  return known[chainId] ?? "native token";
+}
+
 export type KeeperHubConfig = {
   apiKey: string;
   chainId: string;
@@ -72,6 +84,11 @@ export type ExecutionStatus = {
   transactionLink?: string | null;
   sponsored?: boolean;
   receipts?: ChainReceipt[];
+  /**
+   * Already a cost, not a gas price: the docs define it as gasUsed multiplied
+   * by the effective price. Multiplying it by anything squares the price.
+   */
+  gasUsedWei?: string | null;
   error?: string | null;
   /** Seconds to wait before polling again. 0 means terminal. */
   pollHintSeconds: number;
@@ -91,6 +108,8 @@ export type Settlement = {
   receipt: ChainReceipt | null;
   sponsored: boolean;
   chainId: string;
+  /** What the transaction cost in the chain's native token, in wei. */
+  gasUsedWei: string | null;
 };
 
 class KeeperHubError extends Error {
@@ -341,6 +360,7 @@ export async function getExecution(
     transactionLink: typeof body.transactionLink === "string" ? body.transactionLink : null,
     sponsored: body.sponsored === true,
     receipts: parseChainReceipts(body.receipts),
+    gasUsedWei: typeof body.gasUsedWei === "string" ? body.gasUsedWei : null,
     error: typeof body.error === "string" ? body.error : null,
     pollHintSeconds: pollHint(res.headers),
   };
@@ -491,5 +511,6 @@ export async function settle(config: KeeperHubConfig, taskId: string): Promise<S
     receipt: chosen,
     sponsored: final.sponsored === true,
     chainId: config.chainId,
+    gasUsedWei: final.gasUsedWei ?? null,
   };
 }

@@ -69,7 +69,13 @@ export default function ReceiptsPage() {
                   })()}
                 </div>
                 <div className={`tag ${r.decision === "allowed" ? "ok" : "no"}`}>
-                  {r.decision === "allowed" ? usd(r.costMicroUsd) : "refused"}
+                  {r.decision !== "allowed"
+                    ? "refused"
+                    : r.chainTxHash && r.costMicroUsd === 0
+                      ? // The gateway meters nothing here. What this step costs
+                        // is gas, in the chain's own token, shown on the receipt.
+                        "gas only"
+                      : usd(r.costMicroUsd)}
                 </div>
               </Link>
             ))}

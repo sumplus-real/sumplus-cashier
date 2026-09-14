@@ -3,9 +3,15 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { settlementState, type Receipt } from "@/lib/receipts";
-import { usd } from "@/lib/money";
+import { native, usd } from "@/lib/money";
+import { nativeSymbol } from "@/lib/keeperhub";
 
-type Settlement = { transactionLink?: string | null; chainId?: string; executionId?: string };
+type Settlement = {
+  transactionLink?: string | null;
+  chainId?: string;
+  executionId?: string;
+  gasUsedWei?: string | null;
+};
 type Run = { receipts: Receipt[]; settlement?: Settlement | null; empty?: boolean };
 
 export default function ReceiptPage({ params }: { params: Promise<{ seq: string }> }) {
@@ -44,14 +50,36 @@ export default function ReceiptPage({ params }: { params: Promise<{ seq: string 
 
   if (!receipt) return <main><section className="hero"><h1>Loading the receipt.</h1></section></main>;
 
+  const onChain = Boolean(receipt.chainTxHash);
+  const symbol = nativeSymbol(settlement?.chainId ?? "97");
+
   const rows: [string, string][] = [
     ["Sequence", String(receipt.seq)],
     ["Recorded at", receipt.at],
     ["Action", receipt.action],
     ["Target", receipt.target],
     ["Decision", receipt.decision],
-    ["Metered", receipt.decision === "allowed" ? usd(receipt.costMicroUsd) : "nothing, the call did not run"],
+    [
+      // Metering covers what the gateway charges per call. Gas is paid in the
+      // chain's own token and is a separate figure, so it gets its own row
+      // rather than being folded into a dollar amount, or worse, left at zero.
+      onChain ? "Metered by the gateway" : "Metered",
+      receipt.decision === "allowed"
+        ? onChain
+          ? `${usd(receipt.costMicroUsd)}, which is what this call costs at the gateway. Moving the money costs gas instead, below.`
+          : usd(receipt.costMicroUsd)
+        : "nothing, the call did not run",
+    ],
   ];
+
+  if (onChain) {
+    rows.push([
+      `Gas paid on chain`,
+      settlement?.gasUsedWei
+        ? native(settlement.gasUsedWei, symbol)
+        : `paid in ${symbol}, and the amount was not reported for this execution`,
+    ]);
+  }
 
   return (
     <main>

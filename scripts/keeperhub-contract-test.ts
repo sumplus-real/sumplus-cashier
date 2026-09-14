@@ -113,6 +113,7 @@ async function withStub<T>(
             network: "97",
             transactionHash: stage.hash === undefined ? null : stage.hash,
             sponsored: false,
+            gasUsedWei: "21000000000000",
             receipts: stage.receipts ?? [],
           }),
         );
@@ -187,6 +188,7 @@ async function main() {
       check("broadcast carried no simulate flag", captured.broadcastBodies[0]?.simulate === undefined);
       check("broadcast carried an idempotency key", typeof captured.broadcastKeys[0] === "string");
       check("dry run carried no idempotency key", captured.simulateKeys[0] === null);
+      check("gas cost carried through", result.gasUsedWei === "21000000000000");
     },
   );
 
@@ -260,6 +262,12 @@ async function main() {
   check("canonical amount strips trailing zeros", kh.canonicalAmount("1.000") === "1");
   check("canonical amount keeps a leading zero", kh.canonicalAmount(".5") === "0.5");
   check("canonical amount collapses zeros", kh.canonicalAmount("0.000") === "0");
+
+  const money = await import("../lib/money");
+  check("gas reads in the chain's own token", money.native("21000000000000", kh.nativeSymbol("97")) === "0.000021 tBNB");
+  check("BNB testnet names its token", kh.nativeSymbol("97") === "tBNB");
+  check("an unknown chain is named honestly", kh.nativeSymbol("424242") === "native token");
+  check("a whole token formats without a point", money.native("1000000000000000000", "tBNB") === "1 tBNB");
 
   console.log("4. The daily spending cap is read before anything is broadcast");
   await withStub(
