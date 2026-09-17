@@ -44,6 +44,7 @@ type Replay = {
   sameTransaction: boolean;
   chain: {
     address: string;
+    broadcasterIsRecipient: boolean;
     chainId: string;
     transactionCountBefore: number;
     transactionCountAfter: number;
@@ -261,12 +262,19 @@ export default function Home() {
                       </span>
                     </p>
                     <p className="muted" style={{ margin: "10px 0 0" }}>
-                      The wallet had sent{" "}
-                      <b>{replay.chain.transactionCountBefore}</b> transactions before the retry and{" "}
-                      <b>{replay.chain.transactionCountAfter}</b> after. That count comes from{" "}
-                      <span className="mono">{replay.chain.nodeAfter}</span>, a public node Sumplus
-                      does not operate, because &ldquo;I broadcast nothing&rdquo; is exactly the
-                      claim that should not be taken from the party making it.
+                      The account that broadcasts, <span className="mono">{short(replay.chain.address, 8)}</span>,
+                      had sent <b>{replay.chain.transactionCountBefore}</b> transactions before the
+                      retry and <b>{replay.chain.transactionCountAfter}</b> after. That count comes
+                      from <span className="mono">{replay.chain.nodeAfter}</span>, a public node
+                      Sumplus does not operate, because &ldquo;I broadcast nothing&rdquo; is exactly
+                      the claim that should not be taken from the party making it.
+                    </p>
+                    <p className="muted" style={{ margin: "8px 0 0", fontSize: 13 }}>
+                      The address counted here is the one the dry run reports as the sender, not the
+                      recipient. Counting the recipient would give the same answer while this demo
+                      settles to its own wallet, and would go on saying &ldquo;nothing moved&rdquo;
+                      forever once it did not. These two numbers describe that one run; the wallet
+                      keeps sending afterwards.
                     </p>
                   </div>
                 )}
