@@ -14,11 +14,26 @@ alone and catch a single edited digit.
 
 1. Open the live URL and press **Run a session**. Every call on that page is a
    live request to Sumplus production, not a recording.
-2. Two of the five calls are refused before they run, each with a sentence: one
+2. Two of the seven calls are refused before they run, each with a sentence: one
    exceeds the per-call ceiling, one reaches a host outside the allowlist.
-3. Open **Verify**, press **Edit this receipt**, and watch the check fail.
-4. Open **Attestation** to see what the gateway proves about itself, then follow
+3. Step 5 is the settlement. It runs through KeeperHub and puts a real
+   transaction on BNB Chain testnet. The hash on the page is the one you can
+   open on an explorer, or read back yourself:
+
+   ```bash
+   curl -s https://bsc-testnet-rpc.publicnode.com -H 'content-type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["<hash from the page>"]}'
+   ```
+
+4. Open **Verify**, press **Swap the transaction hash** on the settlement
+   receipt, and watch the check fail twice.
+5. Open **Attestation** to see what the gateway proves about itself, then follow
    the link to Sigstore and find the entry on a log Sumplus does not run.
+
+An earlier settlement from this deployment, if you want one to check before
+pressing anything:
+[`0xd28bf430…d056d3`](https://testnet.bscscan.com/tx/0xd28bf4309e6cb5e4b4a6ce1acd09827492cce638ead2344e97a0ddbc16d056d3),
+status 1, block 131604777.
 
 ## What is real here
 
@@ -28,6 +43,8 @@ alone and catch a single edited digit.
 | Skill search | `GET https://arsenal.sumplus.xyz/api/skills?search=…` |
 | Hardware report | `GET https://router.sumplus.xyz/attestation` — mode `sev-snp` |
 | Public anchor | `GET https://router.sumplus.xyz/v1/rekor` — Sigstore Rekor |
+| Settlement | `POST https://app.keeperhub.com/api/execute/transfer` — dry run, then one broadcast |
+| Chain receipt | `GET https://app.keeperhub.com/api/execute/{id}/status` — polled to a verified receipt |
 
 Check the last two without this app:
 
@@ -49,16 +66,24 @@ flowchart LR
   U["upstream.ts<br/>the call, metered"]
   L["receipts.ts<br/>hash-chained ledger"]
   V["/verify<br/>recompute from the receipts alone"]
+  K["keeperhub.ts<br/>dry run · idempotency key · poll"]
   ARS[["arsenal.sumplus.xyz<br/>execution layer"]]
   RTR[["router.sumplus.xyz<br/>gateway in AMD SEV-SNP"]]
+  KH[["app.keeperhub.com<br/>Direct Execution API"]]
+  CH[["BNB Chain testnet<br/>the transaction"]]
   REK[["Sigstore Rekor<br/>a log Sumplus does not run"]]
 
   A --> P
   P -- allowed --> U
   P -- "refused, with a sentence" --> L
+  P -- "allowed to settle" --> K
   U --> ARS
   U --> RTR
+  K --> KH
+  KH --> CH
+  CH -- "receipt, read back" --> KH
   U -- "cost, hashes, decision" --> L
+  K -- "tx hash, verified status" --> L
   L --> V
   RTR -- "publishes its chain head" --> REK
 ```
@@ -81,6 +106,45 @@ Refusals are receipts too. They cost nothing and still take a place in the
 chain, because a spending record with the refusals removed is not a record of
 the session. Prompt and response bodies are never stored; receipts carry
 hashes, costs and metadata.
+
+## The settlement, through KeeperHub
+
+Once the policy allows a spend, `lib/keeperhub.ts` settles it against the
+[Direct Execution API](https://docs.keeperhub.com/api/direct-execution). Four
+things there are deliberate:
+
+- **A dry run first.** `simulate: true` signs nothing and broadcasts nothing,
+  and it answers whether the transaction would go through. A failed dry run
+  stops the settlement instead of broadcasting hopefully.
+- **One broadcast, under a key derived from the work.** The idempotency key is
+  `sha256(taskId|chainId|recipient|amount|tokenAddress)` with each part
+  canonicalised, so address case and a trailing zero in the amount do not change
+  it. A retry of the same session derives the same key and replays, rather than
+  putting a second transaction on the chain.
+- **Polling follows the hint, not the status string.** The response carries a
+  poll-interval hint, and an unfamiliar or unconfirmed status is not read as a
+  failure.
+- **The receipt is read back.** KeeperHub re-fetches the receipt from the chain
+  before settling the execution, so the `receipts` array is the proof and
+  `transactionHash` is treated as self-reported, which is what the docs say to
+  do.
+
+The transaction hash and its verified status go into the receipt chain, so
+editing either breaks that receipt and the link the next one holds.
+
+```bash
+npm run keeperhub-test
+# 45 assertions against a stub of the documented API, covering the dry run
+# gate, the idempotency key, polling past an unconfirmed status, the spending
+# cap, and the settlement inside the receipt's commitment.
+```
+
+The assertions were checked by breaking the code on purpose and watching them
+go red. One of those breaks found a hole rather than confirming a guard:
+replacing "prefer a verified success" with "take the first receipt" passed
+everything, because every scenario handed back exactly one receipt, which makes
+the two rules the same answer. Two scenarios where they disagree now exist, and
+that break goes red.
 
 ## Negative control
 

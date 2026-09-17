@@ -209,6 +209,53 @@ async function main() {
     },
   );
 
+  // Every other scenario hands back a single receipt, which makes "pick the
+  // verified one" and "pick the first one" the same answer, so neither can be
+  // told from the other. This is the one place the two disagree.
+  await withStub(
+    {
+      pollStatuses: [
+        {
+          status: "completed",
+          hint: "0",
+          receipts: [
+            { hash: "0xdead", chainId: 97, verified: false, receiptStatus: "reverted", blockNumber: 1 },
+            { hash: "0xgood", chainId: 97, verified: true, receiptStatus: "success", blockNumber: 5678, gasUsed: "21000" },
+          ],
+          hash: null,
+        },
+      ],
+    },
+    async () => {
+      const result = await kh.settle(config, "task-2b");
+      check("a verified success is preferred over an earlier reverted attempt", result.receipt?.blockNumber === 5678);
+      check("the preferred receipt is the one reported as the hash", result.transactionHash === "0xgood");
+    },
+  );
+
+  // And the other half of it: when nothing confirmed, the reverted attempt is
+  // kept rather than dropped. "Reverted" and "could not be read yet" are
+  // different outcomes, and discarding the entry collapses them into silence.
+  await withStub(
+    {
+      pollStatuses: [
+        {
+          status: "completed",
+          hint: "0",
+          receipts: [
+            { hash: "0xdead", chainId: 97, verified: true, receiptStatus: "reverted", blockNumber: 42 },
+          ],
+          hash: null,
+        },
+      ],
+    },
+    async () => {
+      const result = await kh.settle(config, "task-2c");
+      check("a reverted receipt is kept, not dropped", result.receipt?.receiptStatus === "reverted");
+      check("a reverted receipt is not reported as a success", result.receipt?.blockNumber === 42);
+    },
+  );
+
   await withStub(
     {
       pollStatuses: [{ status: "completed", hint: "0", receipts: CONFIRMED, hash: "0xabc" }],
