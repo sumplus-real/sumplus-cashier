@@ -68,6 +68,24 @@ export async function POST() {
     const broadcaster = simulation.from;
 
     const before = await readTransactionCount(config.chainId, broadcaster);
+
+    // The account that broadcast the settlement this session already made has,
+    // by definition, sent at least one transaction. A zero here means we are
+    // counting an account that never broadcasts, which is the one way this
+    // whole demonstration could report "nothing moved" while proving nothing.
+    // Fail loudly instead, because a vacuous proof reads exactly like a real one.
+    if (before.transactionCount === 0) {
+      return NextResponse.json(
+        {
+          error:
+            `The account being counted (${broadcaster}) has never sent a transaction, so it cannot ` +
+            `be the one that broadcast this session's settlement. Refusing to report a retry check ` +
+            `that would be vacuous.`,
+        },
+        { status: 500 },
+      );
+    }
+
     const again = await executeTransfer(config, taskId);
     const final = await waitForExecution(config, again.executionId);
     const after = await readTransactionCount(config.chainId, broadcaster);
