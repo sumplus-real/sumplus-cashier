@@ -118,8 +118,9 @@ npm run dev     # http://127.0.0.1:4300
 
 ## Notes
 
-- The cashier is read-only against production. It demonstrates control and
-  proof; it does not move funds.
+- Money moves. An allowed spend settles through KeeperHub on BNB Chain testnet,
+  and the chain-verified receipt goes into the receipt chain. Every other call
+  the cashier makes is a read against production.
 - Costs are metered at a published rate card and displayed with enough decimals
   that the shown figure is never below the metered one.
 - A ceiling of zero is a stop, never "no ceiling".

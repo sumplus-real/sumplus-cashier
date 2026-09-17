@@ -46,8 +46,9 @@ a spending record with the refusals removed is not a record of the session.
 
 ## Notes
 
-- Read-only against production. It demonstrates control and proof; it does not
-  move funds.
+- Money moves. An allowed spend settles through KeeperHub on BNB Chain testnet
+  and the chain-verified receipt is written into the receipt chain. Every other
+  call is a read against production.
 - Prompt and response bodies are never stored. Receipts carry hashes, costs and
   metadata.
 - A ceiling of zero is a stop, never "no ceiling".
