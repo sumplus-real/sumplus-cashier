@@ -159,6 +159,23 @@ everything, because every scenario handed back exactly one receipt, which makes
 the two rules the same answer. Two scenarios where they disagree now exist, and
 that break goes red.
 
+## When an upstream is not there
+
+Checked by doing it, not by reading the code. Pointing the catalogue host at a
+name that does not resolve and running a session gives this:
+
+```
+0 catalog.read      allowed   upstream did not answer: fetch failed
+1 skill.search      allowed   upstream did not answer: fetch failed
+2 attestation.read  allowed   mode sev-snp, measurement 7a89cceaaba0bbdd…
+...
+```
+
+The session continues, the settlement still goes through, and the chain still
+verifies with those failures inside it. A dead upstream turns into a receipt
+that says so, not into a blank page. The same path covers KeeperHub being
+unreachable.
+
 ## Negative control
 
 A verifier that always says yes is worth nothing.
