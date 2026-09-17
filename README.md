@@ -25,9 +25,13 @@ alone and catch a single edited digit.
      -d '{"jsonrpc":"2.0","id":1,"method":"eth_getTransactionReceipt","params":["<hash from the page>"]}'
    ```
 
-4. Open **Verify**, press **Swap the transaction hash** on the settlement
+4. Press **Settle the same work again**. The same work goes back to KeeperHub
+   under the key it already derived, and the page reports the account's
+   transaction count before and after from a public node. The count does not
+   move: a retry replays, it does not pay twice.
+5. Open **Verify**, press **Swap the transaction hash** on the settlement
    receipt, and watch the check fail twice.
-5. Open **Attestation** to see what the gateway proves about itself, then follow
+6. Open **Attestation** to see what the gateway proves about itself, then follow
    the link to Sigstore and find the entry on a log Sumplus does not run.
 
 An earlier settlement from this deployment, if you want one to check before
@@ -131,6 +135,15 @@ things there are deliberate:
 
 The transaction hash and its verified status go into the receipt chain, so
 editing either breaks that receipt and the link the next one holds.
+
+**A retry is checkable on the page, not just in the tests.** `Settle the same
+work again` resubmits the same work under the key it already derived, and
+reports the account's transaction count from a public node before and after.
+Against the live API the same key returns the same execution id and the same
+transaction hash with the count unmoved, and a different task id does produce a
+second transaction, so the demonstration is not vacuous. The count comes from a
+node Sumplus does not run, because "I broadcast nothing" is exactly the claim
+that should not be taken from the party making it.
 
 ```bash
 npm run keeperhub-test

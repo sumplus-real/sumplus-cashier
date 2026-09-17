@@ -28,13 +28,54 @@ type Run = {
   anchor: {
     rekor: { log_index: number; rekor_url: string; uuid: string };
   } | null;
+  settlement: {
+    executionId: string;
+    transactionHash: string | null;
+    chainId: string;
+  } | null;
   empty?: boolean;
+};
+
+type Replay = {
+  idempotencyKey: string;
+  original: { executionId: string; transactionHash: string | null };
+  replayed: { executionId: string; status: string; transactionHash: string | null };
+  sameExecution: boolean;
+  sameTransaction: boolean;
+  chain: {
+    address: string;
+    chainId: string;
+    transactionCountBefore: number;
+    transactionCountAfter: number;
+    broadcastAnything: boolean;
+    nodeBefore: string;
+    nodeAfter: string;
+  };
 };
 
 export default function Home() {
   const [run, setRun] = useState<Run | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [replay, setReplay] = useState<Replay | null>(null);
+  const [replaying, setReplaying] = useState(false);
+  const [replayError, setReplayError] = useState("");
+
+  async function settleAgain() {
+    setReplaying(true);
+    setReplayError("");
+    setReplay(null);
+    try {
+      const res = await fetch("/api/replay", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "The replay did not complete.");
+      setReplay(data as Replay);
+    } catch (e) {
+      setReplayError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReplaying(false);
+    }
+  }
 
   const load = useCallback(async () => {
     const res = await fetch("/api/session", { cache: "no-store" });
@@ -161,6 +202,77 @@ export default function Home() {
               );
             })}
           </div>
+
+          {run.settlement?.transactionHash && (
+            <>
+              <h2>What a retry does</h2>
+              <div className="panel">
+                <p style={{ margin: "0 0 10px" }}>
+                  The settlement went out under an idempotency key derived from the work rather than
+                  from the attempt. The question that matters when an agent is spending is what
+                  happens when the same work is submitted twice. Press the button and find out,
+                  rather than taking the sentence above on trust.
+                </p>
+                <button className="btn" disabled={replaying || busy} onClick={settleAgain}>
+                  {replaying ? "Asking KeeperHub again…" : "Settle the same work again"}
+                </button>
+
+                {replayError && (
+                  <p style={{ margin: "12px 0 0", color: "var(--warn)" }}>{replayError}</p>
+                )}
+
+                {replay && (
+                  <div style={{ marginTop: 14 }}>
+                    <p className="mono muted" style={{ margin: "0 0 10px" }}>
+                      key {short(replay.idempotencyKey, 10)}
+                    </p>
+                    <div className="scroll-x">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Submission</th>
+                            <th>Execution</th>
+                            <th>Transaction</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>First settlement</td>
+                            <td className="mono">{short(replay.original.executionId, 8)}</td>
+                            <td className="mono">
+                              {short(replay.original.transactionHash ?? "", 10)}
+                            </td>
+                          </tr>
+                          <tr>
+                            <td>Same work, submitted again</td>
+                            <td className="mono">{short(replay.replayed.executionId, 8)}</td>
+                            <td className="mono">
+                              {short(replay.replayed.transactionHash ?? "", 10)}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <p style={{ margin: "12px 0 0" }}>
+                      <span className={`tag ${replay.chain.broadcastAnything ? "no" : "ok"}`}>
+                        {replay.chain.broadcastAnything
+                          ? "a second transaction reached the chain"
+                          : "nothing new reached the chain"}
+                      </span>
+                    </p>
+                    <p className="muted" style={{ margin: "10px 0 0" }}>
+                      The wallet had sent{" "}
+                      <b>{replay.chain.transactionCountBefore}</b> transactions before the retry and{" "}
+                      <b>{replay.chain.transactionCountAfter}</b> after. That count comes from{" "}
+                      <span className="mono">{replay.chain.nodeAfter}</span>, a public node Sumplus
+                      does not operate, because &ldquo;I broadcast nothing&rdquo; is exactly the
+                      claim that should not be taken from the party making it.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           <h2>Where the record is anchored</h2>
           <div className="panel">
